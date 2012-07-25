@@ -7,7 +7,7 @@ jQuery Recommend Plugin provides the front-end code needed to add recommend (or 
 Dependencies
 ------------
 
-- jQuery Cookie Plugin - `https://github.com/carhartl/jquery-cookie <https://github.com/carhartl/jquery-cookie`_
+- jQuery Cookie Plugin - `https://github.com/carhartl/jquery-cookie <https://github.com/carhartl/jquery-cookie>`_
 
 
 
