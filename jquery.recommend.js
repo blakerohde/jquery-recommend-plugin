@@ -1,271 +1,242 @@
-/**
- * recommend jQuery Plugin (https://github.com/blakerohde/jquery-recommend-plugin)
+/*!
+ * jQuery Recommend Plugin v2.0.0
+ * https://github.com/blakerohde/jquery-recommend-plugin
  * 
- * Copyright (c) 2010-2012 Blake Rohde (http://www.blakerohde.com/)
- * Dual licensed under the MIT and GPL licenses:
+ * Copyright 2012, Blake Rohde
+ * Dual licensed under the MIT or GPL Version 2 licenses:
  * http://www.opensource.org/licenses/mit-license.php
- * http://www.gnu.org/licenses/gpl.html
+ * http://www.opensource.org/licenses/GPL-2.0
  */
-(function($) {
-	$.recommend = function(options) {
-		// Set default settings and override with options, if sent in
-		// settings.css.recommend_to_remove : CSS class to remove from each selector match (for multiple, seperate each by a space)
-		var settings = $.extend(true, {
-			'cookie_name' : 'recommended',
-			'css_class' : {
-				'recommend_count' : 'recommend_count_',
-				'recommend_init' : 'recommend_',
-				'recommend_to_remove' : 'noShow',
-				'recommend_link' : 'recommend_link_'
-			},
-			'debug' : false,
-			'url' : {
-				'ajax_path' : 'ajax_path/',
-				'base_path' : 'base_path/',
-				'domain' : 'http://www.example.com/',
-				'id_seperator' : '-'
-			}
-		}, options);
-		
-		// Define variables
-		var cookie_contents = null;
-		var request = {
-			'ajax_path' : settings.url.ajax_path,
-			'base_path' : settings.url.base_path,
-			'domain' : settings.url.domain,
-			'id' : '',
-			'ids' : ''
-		};
-		var placeholders = $("[class*='" + settings.css_class.recommend_init + "']");
+(function( $, window, document, undefined ) {
+
+var Recommend = (function() {
+	
+	return {
 		
 		/**
-		 * log
+		 * init
+		 * Perform setup for the plugin
 		 */
-		function log(message, override_debug) {
-			if(override_debug == undefined) {
-				override_debug = false;
-			}
-			//else
+		init: function( options, elem ) {
+			var self = this;
 			
-			if(settings.debug || override_debug) {
-				console.log(message);
-			}
-			//else
-		}
+			self.$this = elem;
+			self.options = $.extend( {}, $.fn.recommend.options, options );
+			
+			return self;
+		},
 		
 		/**
-		 * appendRequestID
+		 * logger
+		 * The internal logging function
 		 */
-		function appendRequestID(id_string, new_id) {
-			if(id_string != '') {
-				id_string += settings.url.id_seperator;
+		logger: function( msg ) {
+			var self = this;
+			
+			if( self.options.debug ) {
+				return self.options.logger( msg );
 			}
-			//else
-			
-			id_string += new_id;
-			
-			return id_string;
-		};
+		},
 		
 		/**
 		 * getCookieContents
+		 * Returns the contents of self.options.cookie.name
 		 */
-		function getCookieContents(cookie_name) {
-			return $.cookie(cookie_name);
-		};
+		getCookieContents: function() {
+			var self = this;
+
+			var contents = self.options.cookie.processor( self.options.cookie.name )
+			
+			if( contents == null ) {
+				return '';
+			} else {
+				return contents;
+			}
+		},
 		
 		/**
-		 * parseQueryStrings
+		 * getCookieIDs
+		 * Get the IDs stored in the cookie
 		 */
-		function parseQueryStrings(qs_kv_pairs) {
-			var url_chunk = '';
+		getCookieIDs: function() {
+			var self = this;
 			
-			$.each(qs_kv_pairs, function(key, value) {
-				if(url_chunk == '') {
-					url_chunk += '?';
-				}
-				else {
-					url_chunk += '&';
-				}
-				
-				if(value == null || value == undefined) {
-					value = '';
-				}
-				//else
-				
-				url_chunk += key + '=' + value;
-			});
+			var contents = self.getCookieContents();
+			if( contents == '' ) {
+				return []
+			} else {
+				return self.getCookieContents().split( self.options.id_seperator )
+			}
+		},
+		
+		/**
+		 * getID
+		 * Return the current elements ID (by getting the contents after the options.href_id_prefix)
+		 */
+		getID: function() {
+			var self = this;
 			
-			return url_chunk;
-		};
-	
+			return $( self.$this ).attr( 'href' ).substr( self.options.href_id_prefix.length );
+		},
+		
+		/**
+		 * deactivate
+		 * Unwrap recommend links if the cookie has the link's ID
+		 */
+		deactivate: function() {
+			var self = this;
+			
+			self.logger( self.getCookieIDs().indexOf( self.getID()) );
+			if( self.getCookieIDs().indexOf(self.getID()) != -1 ) {
+				self.logger( 'deactivate ' + self.getID() )
+				
+				// Replace the recommend label with the new value
+                        	$( '[class~="' + self.options.classes.rlabel + '"]', self.$this ).replaceWith( self.options.replace_label );
+				
+				// Replace the element (an a tag) with a span
+				var elem = $( document.createElement('span') ).append( $(self.$this).html() );
+				$( self.$this ).replaceWith( elem );
+				
+				return self.$this = elem;
+			}
+			
+			return self.$this;
+		},
+		
 		/**
 		 * getRequestURL
+		 * Return the request URL used for the AJAX call triggered when recommending an item
 		 */
-		function getRequestURL(method, qs_kv_pairs_override, req_override) {
-			if(method == undefined) {
-				return false;
+		getRequestURL: function() {
+			var self = this;
+			
+			if( self.options.request.type ) {
+				return self.options.request.path + '?type=' + self.options.request.type + '&id=' + self.getID();
+			} else {
+				return self.options.request.path + '?id=' + self.getID();
 			}
-			//else
-			
-			var tmp_request = $.extend(true, {
-				'ajax_path' : request.ajax_path,
-				'domain' : request.domain,
-				'id' : request.id,
-				'ids' : request.ids
-			}, req_override);
-			
-			// Method needs to be added to the query string key-value pairs, so the parsed URL chunk can be generated
-			var qs_kv_pairs = {
-				'method' : method
-			};
-			
-			// Increment the item's recommend count
-			if(method == 'increment') {
-				qs_kv_pairs = $.extend(true, qs_kv_pairs, {
-					'id' : tmp_request.id
-				});
-			}
-			// Get the recommend count totals for the ids
-			else if(method == 'getCounts') {
-				qs_kv_pairs = $.extend(true, qs_kv_pairs, {
-					'ids' : tmp_request.ids
-				});
-			}
-			// Unknown/undefined method
-			else {
-				return false;
-			}
-			
-			// Override any key-value pairs with the passed in object
-			qs_kv_pairs = $.extend(true, qs_kv_pairs, qs_kv_pairs_override);
-			
-			return tmp_request.domain + tmp_request.ajax_path + parseQueryStrings(qs_kv_pairs);
-		};
+		},
 		
 		/**
-		 * findIDMatch
+		 * appendID
+		 * Append the current id to the cookie
 		 */
-		function findIDMatch(id_string, id_to_match) {
-			var ids = id_string.split(settings.url.id_seperator);
-			var ids_count = ids.length;
-			for(var i=0;i < ids_count;++i) {
-				if(ids[i] == id_to_match) {
-					return true;
-				}
-				//else
-			}
+		appendID: function( id ) {
+			var self = this;
 			
-			return false;
-		};
-		
-		/**
-		 * main
-		 */
-		function main() {
-			// Get the value of the cookie
-			cookie_contents = getCookieContents(settings.cookie_name);
-			if(cookie_contents == null) {
-				cookie_contents = '';
-			}
-			//else
-			
-			// For each selector match, get its respective ID value and set the containers contents to 
-			// 		either static text or a link (depending on if the user has already recommended the ID)
-			placeholders.each(function() {
-				var id = null;
-				var css_classes = $(this).attr('class').split(' ');
-				var css_classes_count = css_classes.length;
-				for(var i=0;i < css_classes_count;++i) {
-					if(css_classes[i].search(settings.css_class.recommend_init) == 0) {
-						id = css_classes[i].substr(settings.css_class.recommend_init.length);
-						break;
-					}
-					//else
-				}
-				
-				if(id != null) {
-					request['ids'] = appendRequestID(request.ids, id);
-					
-					$(this).removeClass(settings.css_class.recommend_to_remove);
-					
-					if(findIDMatch(cookie_contents, id) == false) {
-						$(this).replaceWith('<a class="' + settings.css_class.recommend_link + id + '" href="#recommend' + id + '" title="Recommend this post">Recommend (<span class="' + settings.css_class.recommend_count + id + '">0</span>)</a>');
-					}
-					else {
-						$(this).replaceWith('Recommended (<span class="' + settings.css_class.recommend_count + id + '">0</span>)');
-					}
-				}
-				//else
+			self.logger( self.getCookieIDs() );
+			self.logger( (self.getCookieIDs().concat([id])).join(self.options.id_seperator) );
+			self.options.cookie.processor(self.options.cookie.name, (self.getCookieIDs().concat([id])).join(self.options.id_seperator), {
+				expires: 2555,
+				path: '/'
 			});
+		},
+		
+		/**
+		 * replace
+		 * Replace the current recommend link with a span and update the recommend count
+		 */
+		replace: function( new_count ) {
+			var self = this;
 			
-			// Get the current recommend counts for each ID and insert the respective values
-			if(placeholders.size() > 0) {
-				$.ajax({
-					'dataType' : 'json',
-					'error' : function() {
-						log('Error.');
-					},
-					'success' : function(recommend_data) {
-						var data_count = recommend_data.length;
-						for(var i=0;i < data_count;++i) {
-							$("span[class~='" + settings.css_class.recommend_count + recommend_data[i].id + "']").each(function() {
-								$(this).html(recommend_data[i].count);
-							});
-						}
-					},
-					'url' : getRequestURL('getCounts')
-				});
-			}
-			//else
+			// Replace the recommend count with the new value
+			$( '[class~="' + self.options.classes.rnum + '"]', self.$this ).hide().html( new_count ).fadeIn( 'slow' );
 			
-			// When an available recommend link is clicked, we want to increment the value and make an AJAX call to save the incremented value
-			$("a[class*='" + settings.css_class.recommend_link + "']").click(function() {
-				var id = null;
-				var current_recommend_count = $(this).children().eq(0).text();
-				var css_classes = $(this).attr('class').split(' ');
-				var css_classes_count = css_classes.length;
-				for(var i=0;i < css_classes_count;++i) {
-					if(css_classes[i].search(settings.css_class.recommend_link) == 0) {
-						id = css_classes[i].substr(settings.css_class.recommend_link.length);
-						break;
-					}
-					//else
-				}
+			// Replace the recommend label with the new value
+			$( '[class~="' + self.options.classes.rlabel + '"]', self.$this ).replaceWith( self.options.replace_label );
+		},
+		
+		/**
+		 * register
+		 * Register an on-click listener for the selected element(s)
+		 */
+		register: function() {
+			var self = this;
+			
+			self.logger( self.$this );
+			
+			if( $( self.$this ).attr( 'href' ) != undefined ) {
+				$( self.$this ).click(function() {
+					self.logger( 'click ' + self.getID() );
 				
-				if(id != null) {
-					request['id'] = id;
-					
-					// Now that the user has recommended the item, remove the link
 					$.ajax({
-						'dataType' : 'json',
-						'error' : function() {
-							log('AJAX Error.');
+						dataType: 'json',
+						error: function() {
+							self.logger( 'AJAX Error' );
 						},
-						'success' : function(recommend_data) {
-							// Append the ID to the cookie_contents, so the link is disabled on next page load
-							cookie_contents = appendRequestID(cookie_contents, id);
-							$.cookie(settings.cookie_name, cookie_contents, {
-								'expires' : 2555,
-								'path' : request.base_url
-							});
+						success: function( data ) {
+							self.logger( data );
 							
-							$("span[class~='" + settings.css_class.recommend_count + recommend_data.id + "']").each(function() {
-								$(this).hide().html(recommend_data.count).fadeIn('slow');
-							});
+							self.appendID( data.id );
+							self.deactivate();
+							
+							self.replace( data.count );
+							
+							$( self.$this ).off( 'click' );
 						},
-						'url' : getRequestURL('increment')
+						url: self.getRequestURL()
 					});
 					
-					$(this).replaceWith('Recommended (<span class="' + settings.css_class.recommend_count + id + '">' + current_recommend_count + '</span>)');
-				}
-				else
-					log('ID Error.');
-				
-				return false;
-			});
-		};
+					return false;
+				});
+			}
+			
+			return self;
+		}
 		
-		main();
 	};
-})(jQuery);
+	
+})();
+
+$.fn.recommend = function( options ) {
+	
+	return this.each(function() {
+		
+		var recommend = $.extend( {}, Recommend );
+		
+		recommend.init( options, this );
+		recommend.deactivate();
+		recommend.register();
+		
+		$.data( this, 'recommend', recommend );
+		
+	});
+};
+
+$.fn.recommend.options = {
+	
+	// cookie: cookie related options
+	cookie: {
+		// cookie.name: The name of the cookie to store recommended IDs
+		name: 'recommended',
+		// cookie.processor: The plugin/method that handles cookies
+		processor: $.cookie
+	},
+	// classes: CSS classes for selecting key children elements for content replacement/modification
+	classes: {
+		// classes.rlabel: The label to be replaced
+		rlabel: 'rlabel',
+		// classes.rnum: The current number of recommends
+		rnum: 'rnum'
+	},
+	// debug: Toggle debug which will restrict logs, etc.
+	debug: false,
+	// href_id_prefix: The recommend link's href attribute prefix before the ID
+	href_id_prefix: '#recommend-',
+	// id_seperator: Seperator used to seperate IDs when storing in the cookie
+	id_seperator: '-',
+	// logger: The logging plugin/method that handles logging (for debugging)
+	logger: function( msg ) { console.log(msg); },
+	// replace_label: post-recommended label for classes.rlabel
+	replace_label: 'Recommended',
+	// request: options related to the AJAX request made when recommending an item
+	request: {
+		// request.path: The absolute or relative path for the AJAX calls
+		path: '',
+		// request.type: Optional: The content type for the item being recommended. If specified, a 'type' query string will be added to the request URL with the specified value
+		type: ''
+	}
+	
+};
+
+})( jQuery, window, document );
